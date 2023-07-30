@@ -25,7 +25,9 @@ suspend fun main(args: Array<String>) {
 
     val sessions: MutableMap<Snowflake, InteractiveSession> = mutableMapOf()
 
-    val kord = Kord(args[0]) {
+    val bot_token = args[0];
+
+    val kord = Kord(bot_token) {
         enableShutdownHook = false
     }
 
@@ -140,4 +142,3 @@ suspend fun main(args: Array<String>) {
         intents += Intent.GuildVoiceStates
     }
 }
-
