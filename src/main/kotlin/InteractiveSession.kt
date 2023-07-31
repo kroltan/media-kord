@@ -4,12 +4,14 @@ import com.sedmelluq.discord.lavaplayer.player.AudioPlayer
 import com.sedmelluq.discord.lavaplayer.track.AudioTrack
 import dev.kord.common.annotation.KordVoice
 import dev.kord.common.entity.ButtonStyle
+import dev.kord.common.entity.Snowflake
 import dev.kord.core.Kord
 import dev.kord.core.behavior.channel.BaseVoiceChannelBehavior
 import dev.kord.core.behavior.channel.connect
 import dev.kord.core.builder.components.emoji
 import dev.kord.core.entity.Member
 import dev.kord.core.entity.ReactionEmoji
+import dev.kord.core.entity.VoiceState
 import dev.kord.rest.builder.message.modify.InteractionResponseModifyBuilder
 import dev.kord.rest.builder.message.modify.actionRow
 import dev.kord.rest.builder.message.modify.embed
@@ -19,10 +21,8 @@ import dev.kord.voice.VoiceConnection
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.ReceiveChannel
-import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.debounce
-import kotlinx.coroutines.flow.launchIn
-import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.launch
 import java.net.URI
 import kotlin.time.Duration.Companion.milliseconds
 
@@ -39,12 +39,14 @@ private enum class ButtonId(val id: String) {
 @OptIn(KordVoice::class, FlowPreview::class)
 class InteractiveSession private constructor(
     kord: Kord,
+    private val channel: BaseVoiceChannelBehavior,
     private val playlist: Playlist,
     private val connection: VoiceConnection,
     private val response: StatefulResponse.Handle,
 ) {
     val done: ReceiveChannel<Nothing> get() = doneMutable
     private val doneMutable: Channel<Nothing> = Channel { }
+    private val listeners: MutableSet<Snowflake> = mutableSetOf()
 
     companion object {
         suspend fun fromOriginalInteraction(
@@ -61,11 +63,18 @@ class InteractiveSession private constructor(
             }
 
             val playlist = Playlist(player)
-            return InteractiveSession(voiceChannel.kord, playlist, connection, response)
+            return InteractiveSession(voiceChannel.kord, voiceChannel, playlist, connection, response)
         }
     }
 
     init {
+        kord.launch {
+            channel.voiceStates
+                .map { it.userId }
+                .filter { it != connection.data.selfId }
+                .toCollection(listeners)
+        }
+
         combine(playlist.isPlaying, playlist.current, playlist.queue) { isPlaying, current, queue ->
             Snapshot(isPlaying, current, queue)
         }
@@ -88,6 +97,16 @@ class InteractiveSession private constructor(
     fun enqueue(track: AudioTrack, requestedBy: Member) {
         track.userData = requestedBy
         playlist.enqueue(track)
+    }
+
+    suspend fun handleVoiceState(state: VoiceState) {
+        if (state.channelId == channel.id) {
+            listeners.add(state.userId)
+        } else {
+            listeners.remove(state.userId)
+        }
+
+        disconnect()
     }
 
     suspend fun handleButton(id: CharSequence): Boolean {

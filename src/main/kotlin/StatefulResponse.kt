@@ -48,9 +48,7 @@ sealed class StatefulResponse {
     }
 
     private data object Deleted : StatefulResponse() {
-        override suspend fun update(block: InteractionResponseModifyBuilder.() -> Unit): StatefulResponse {
-            throw IllegalStateException("Cannot modify deleted response")
-        }
+        override suspend fun update(block: InteractionResponseModifyBuilder.() -> Unit): StatefulResponse = this
 
         override suspend fun delete(): StatefulResponse = this
     }
