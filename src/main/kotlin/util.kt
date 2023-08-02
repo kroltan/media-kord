@@ -3,7 +3,6 @@ import com.sedmelluq.discord.lavaplayer.player.AudioPlayerManager
 import com.sedmelluq.discord.lavaplayer.tools.FriendlyException
 import com.sedmelluq.discord.lavaplayer.track.AudioPlaylist
 import com.sedmelluq.discord.lavaplayer.track.AudioTrack
-import java.time.Duration
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlin.coroutines.suspendCoroutine
@@ -27,14 +26,6 @@ inline fun <T, U> T?.letNotNull(block: (T) -> U): U? {
         null
     } else {
         block(this)
-    }
-}
-
-inline fun <T, U> Iterable<T>.mapSequence(crossinline block: suspend SequenceScope<U>.(T) -> Unit): Iterable<U> {
-    return this.flatMap {
-        sequence {
-            this.block(it)
-        }
     }
 }
 
@@ -66,21 +57,4 @@ suspend fun AudioPlayerManager.loadItem(identifier: String): Collection<AudioTra
             }
         })
     }
-}
-
-private val durationUnits = listOf<Duration.() -> Pair<Int, String>>(
-    { toHoursPart() to "hours" },
-    { toMinutesPart() to "minutes" },
-    { toSecondsPart() to "seconds" },
-)
-
-fun Duration.toHumanString(): String {
-    return durationUnits
-        .map { it() }
-        .filter { it.first > 0 }
-        .mapSequence {
-            yield(it.first.toString(10))
-            yield(it.second)
-        }
-        .joinToString(" ")
 }

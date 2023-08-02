@@ -1,3 +1,4 @@
+import com.sedmelluq.discord.lavaplayer.player.AudioPlayerManager
 import com.sedmelluq.discord.lavaplayer.player.DefaultAudioPlayerManager
 import com.sedmelluq.discord.lavaplayer.source.AudioSourceManagers
 import com.sedmelluq.discord.lavaplayer.tools.FriendlyException
@@ -6,14 +7,14 @@ import dev.kord.common.Color
 import dev.kord.common.entity.Snowflake
 import dev.kord.core.Kord
 import dev.kord.core.behavior.interaction.respondEphemeral
+import dev.kord.core.entity.interaction.GuildChatInputCommandInteraction
 import dev.kord.core.event.gateway.ReadyEvent
-import dev.kord.core.event.interaction.GuildButtonInteractionCreateEvent
 import dev.kord.core.event.interaction.GuildChatInputCommandInteractionCreateEvent
+import dev.kord.core.event.interaction.GuildComponentInteractionCreateEvent
 import dev.kord.core.event.user.VoiceStateUpdateEvent
 import dev.kord.core.on
 import dev.kord.gateway.Intent
 import dev.kord.rest.builder.interaction.string
-import dev.kord.rest.builder.message.create.InteractionResponseCreateBuilder
 import dev.kord.rest.builder.message.create.embed
 import kotlinx.coroutines.*
 import mu.KotlinLogging
@@ -50,8 +51,21 @@ suspend fun main(args: Array<String>) {
         }
     })
 
-    kord.createGlobalChatInputCommand("play", "Plays audio on your voice channel") {
-        string("url", "Media to play")
+    run {
+        val commandName = multiLocale { localize("command_play_name") }
+        val commandDescription = multiLocale { localize("command_play_description") }
+        kord.createGlobalChatInputCommand(commandName.default, commandDescription.default) {
+            nameLocalizations = commandName.toMutableMap()
+            descriptionLocalizations = commandDescription.toMutableMap()
+
+            val urlName = multiLocale { localize("command_play_url_name") }
+            val urlDescription = multiLocale { localize("command_play_url_description") }
+            string(urlName.default, urlDescription.default) {
+                nameLocalizations = urlName.toMutableMap()
+                descriptionLocalizations = urlDescription.toMutableMap()
+                required = true
+            }
+        }
     }
 
     kord.on<ReadyEvent> {
@@ -71,10 +85,10 @@ suspend fun main(args: Array<String>) {
         play(lava, sessions)
     }
 
-    kord.on<GuildButtonInteractionCreateEvent> {
+    kord.on<GuildComponentInteractionCreateEvent> {
         val session = sessions[interaction.guildId] ?: return@on
 
-        session.handleButton(interaction.componentId)
+        session.handleComponent(interaction)
 
         interaction.respondEphemeral { }
     }
@@ -95,8 +109,8 @@ suspend fun main(args: Array<String>) {
 }
 
 private suspend fun GuildChatInputCommandInteractionCreateEvent.play(
-    lava: DefaultAudioPlayerManager,
-    sessions: MutableMap<Snowflake, InteractiveSession>
+    lava: AudioPlayerManager,
+    sessions: MutableMap<Snowflake, InteractiveSession>,
 ) {
     val ownVoiceChannel = interaction.guild.getMember(kord.selfId).getVoiceStateOrNull()?.channelId
     val requestedVoiceChannel = interaction.user.getVoiceStateOrNull()?.getChannelOrNull().otherwise {
@@ -116,23 +130,22 @@ private suspend fun GuildChatInputCommandInteractionCreateEvent.play(
             (fromUrl + fromAttachment)
         }
     } catch (ex: FriendlyException) {
-        interaction.respondEphemeral {
-            displayException(ex, ex.severity)
-        }
+        interaction.respondException(ex, ex.severity)
 
         logger.error { ex.stackTraceToString() }
         return
     } catch (ex: Exception) {
-        interaction.respondEphemeral {
-            displayException(ex, Severity.FAULT)
-        }
+        interaction.respondException(ex, Severity.FAULT)
 
         logger.error { ex.stackTraceToString() }
         return
     }
 
     if (tracks.isEmpty()) {
-        interaction.respondEphemeral { content = "No matches" }
+        interaction.respondEphemeral {
+
+            content = localeScope(interaction.guildLocale) { localize("play_no_matches") }
+        }
     }
 
     val session = sessions.replace(interaction.guildId) { existing ->
@@ -161,15 +174,17 @@ private suspend fun GuildChatInputCommandInteractionCreateEvent.play(
     response.delete()
 }
 
-private fun InteractionResponseCreateBuilder.displayException(exception: Exception, severity: Severity) {
-    embed {
-        title = "Error"
-        description = exception.message
+private suspend fun GuildChatInputCommandInteraction.respondException(exception: Exception, severity: Severity) {
+    respondEphemeral {
+        embed {
+            title = localeScope(guildLocale) { localize("exception_embed_title") }
+            description = exception.message
 
-        color = when (severity) {
-            Severity.COMMON -> null
-            Severity.SUSPICIOUS -> Color(190, 145, 23)
-            Severity.FAULT -> Color(199, 84, 80)
+            color = when (severity) {
+                Severity.COMMON -> null
+                Severity.SUSPICIOUS -> Color(190, 145, 23)
+                Severity.FAULT -> Color(199, 84, 80)
+            }
         }
     }
 }

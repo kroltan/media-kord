@@ -2,6 +2,7 @@ import com.herman.markdown_dsl.elements.link
 import com.herman.markdown_dsl.markdown
 import com.sedmelluq.discord.lavaplayer.player.AudioPlayer
 import com.sedmelluq.discord.lavaplayer.track.AudioTrack
+import dev.kord.common.Locale
 import dev.kord.common.annotation.KordVoice
 import dev.kord.common.entity.ButtonStyle
 import dev.kord.common.entity.Snowflake
@@ -12,6 +13,7 @@ import dev.kord.core.builder.components.emoji
 import dev.kord.core.entity.Member
 import dev.kord.core.entity.ReactionEmoji
 import dev.kord.core.entity.VoiceState
+import dev.kord.core.entity.interaction.GuildComponentInteraction
 import dev.kord.rest.builder.message.modify.InteractionResponseModifyBuilder
 import dev.kord.rest.builder.message.modify.actionRow
 import dev.kord.rest.builder.message.modify.embed
@@ -23,14 +25,16 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.ReceiveChannel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import org.jetbrains.annotations.NonNls
 import java.net.URI
+import java.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 
 private data class Snapshot(val isPlaying: Boolean, val currentTrack: AudioTrack?, val queue: Collection<AudioTrack>)
 
-private enum class ButtonId(val id: String) {
-    Resume("Resume"),
-    Pause("Pause"),
+private enum class ComponentId(@NonNls val id: String) {
+    Resume("resume"),
+    Pause("pause"),
     Skip("skip"),
     Clear("clear"),
     Leave("leave"),
@@ -81,8 +85,9 @@ class InteractiveSession private constructor(
             .debounce(300.milliseconds)
             .onEach {
                 try {
+                    val locale = channel.guild.asGuild().preferredLocale
                     response.update {
-                        render(it)
+                        render(locale, it)
                     }
                 } catch (exception: KtorRequestException) {
                     // Editing after disconnect
@@ -109,17 +114,17 @@ class InteractiveSession private constructor(
         disconnect()
     }
 
-    suspend fun handleButton(id: CharSequence): Boolean {
-        val button = ButtonId.entries
-            .firstOrNull { it.id == id }
+    suspend fun handleComponent(interaction: GuildComponentInteraction): Boolean {
+        val id = ComponentId.entries
+            .firstOrNull { it.id == interaction.componentId }
             .otherwise { return false }
 
-        when (button) {
-            ButtonId.Resume -> playlist.setPlaying(true)
-            ButtonId.Pause -> playlist.setPlaying(false)
-            ButtonId.Skip -> playlist.skip()
-            ButtonId.Clear -> playlist.clear()
-            ButtonId.Leave -> disconnect()
+        when (id) {
+            ComponentId.Resume -> playlist.setPlaying(true)
+            ComponentId.Pause -> playlist.setPlaying(false)
+            ComponentId.Skip -> playlist.skip()
+            ComponentId.Clear -> playlist.clear()
+            ComponentId.Leave -> disconnect()
         }
 
         return true
@@ -137,101 +142,127 @@ class InteractiveSession private constructor(
 private val AudioTrack.requestedBy: Member?
     get() = getUserData(Member::class.java)
 
-private fun InteractionResponseModifyBuilder.render(state: Snapshot) {
-    renderMainTrack(state.isPlaying, state.currentTrack)
-    renderQueue(state.queue)
-    renderActions(state.isPlaying, state.currentTrack, state.queue)
+private fun InteractionResponseModifyBuilder.render(locale: Locale, state: Snapshot) {
+    renderMainTrack(locale, state.isPlaying, state.currentTrack)
+    renderQueue(locale, state.queue)
+    renderActions(locale, state.isPlaying, state.currentTrack, state.queue)
 }
 
-private fun InteractionResponseModifyBuilder.renderMainTrack(isPlaying: Boolean, currentTrack: AudioTrack?) {
+private fun InteractionResponseModifyBuilder.renderMainTrack(
+    locale: Locale,
+    isPlaying: Boolean,
+    currentTrack: AudioTrack?,
+) {
     val info = currentTrack?.info ?: return
 
-    embed {
-        title = info.title
-        description = buildString {
-            appendLine(if (isPlaying) ":arrow_forward: Now playing" else ":pause_button: Paused")
-            currentTrack.requestedBy.letNotNull { append("Requested by ${it.mention}") }
-        }
-        url = info.uri
+    localeScope(locale) {
+        embed {
+            title = info.title
+            description = buildString {
+                appendLine(
+                    if (isPlaying) {
+                        localize("summary_status_playing")
+                    } else {
+                        localize("summary_status_paused")
+                    }
+                )
+                currentTrack.requestedBy.letNotNull { appendLine(localize("summary_requester", it.mention)) }
+            }
+            url = info.uri
 
-        author {
-            name = info.author
-        }
+            author {
+                name = info.author
+            }
 
-        footer {
-            text = java.time.Duration.ofMillis(currentTrack.duration).toHumanString()
+            footer {
+                text = localeScope(locale) { localize(Duration.ofMillis(currentTrack.duration)) }
+            }
         }
     }
 }
 
-private fun InteractionResponseModifyBuilder.renderQueue(queue: Collection<AudioTrack>) {
+private fun InteractionResponseModifyBuilder.renderQueue(locale: Locale, queue: Collection<AudioTrack>) {
     if (queue.isEmpty()) {
         return
     }
 
-    val trackList = buildString {
-        for ((index, track) in queue.withIndex()) {
-            val item = markdown {
-                val id = index + 1
-                val title = track.info.title.tryAugment { link(URI(track.info.uri)) }
-                val suffix = track.requestedBy
-                    .letNotNull { ", requested by ${it.mention}" }
-                    ?: ""
+    localeScope(locale) {
+        val trackList = buildString {
+            for ((index, track) in queue.withIndex()) {
+                val item = markdown {
+                    val id = index + 1
+                    val title = track.info.title.tryAugment { link(URI(track.info.uri)) }
+                    val requester = track.requestedBy?.mention
 
-                line("#$id. $title$suffix")
-            }.toString()
+                    line(
+                        if (requester == null) {
+                            localize("queue_line_unknown_requester", id, title)
+                        } else {
+                            localize("queue_line_known_requester", id, title, requester)
+                        }
+                    )
+                }.toString()
 
-            if (length + item.length > 4000) {
-                appendLine("And ${queue.size - index} more...")
-                break
+                if (length + item.length > 4000) {
+                    appendLine(localize("queue_overflow", queue.size - index))
+                    break
+                }
+
+                appendLine(item)
             }
+        }
 
-            appendLine(item)
+        embed {
+            title = localize("queue_title")
+            description = trackList
         }
     }
 
-    embed {
-        title = "Next up"
-        description = trackList
-    }
 }
 
 private fun InteractionResponseModifyBuilder.renderActions(
+    locale: Locale,
     isPlaying: Boolean,
     currentTrack: AudioTrack?,
-    queue: Collection<AudioTrack>
+    queue: Collection<AudioTrack>,
 ) {
     val hasTrack = currentTrack != null
     val hasQueue = queue.isNotEmpty()
-    actionRow {
-        if (hasTrack) {
-            if (isPlaying) {
-                interactionButton(ButtonStyle.Secondary, ButtonId.Pause.id) {
-                    emoji(ReactionEmoji.Unicode("""⏸️"""))
-                    label = "Pause"
+
+    localeScope(locale) {
+        actionRow {
+            if (hasTrack) {
+                if (isPlaying) {
+                    interactionButton(ButtonStyle.Secondary, ComponentId.Pause.id) {
+                        emoji(ReactionEmoji.Unicode(localize("interaction_pause_emoji")))
+                        label = localize("interaction_pause_label")
+                    }
+                } else {
+                    interactionButton(ButtonStyle.Secondary, ComponentId.Resume.id) {
+                        emoji(ReactionEmoji.Unicode(localize("interaction_play_emoji")))
+                        label = localize("interaction_play_label")
+                    }
                 }
-            } else {
-                interactionButton(ButtonStyle.Secondary, ButtonId.Resume.id) {
-                    emoji(ReactionEmoji.Unicode("""▶️"""))
-                    label = "Play"
+            }
+
+            if (hasTrack && hasQueue) {
+                interactionButton(ButtonStyle.Secondary, ComponentId.Skip.id) {
+                    emoji(ReactionEmoji.Unicode(localize("interaction_skip_emoji")))
+                    label = localize("interaction_skip_label")
                 }
             }
-        }
 
-        if (hasTrack && hasQueue) {
-            interactionButton(ButtonStyle.Secondary, ButtonId.Skip.id) {
-                label = "Skip"
+            if (hasQueue) {
+                interactionButton(ButtonStyle.Secondary, ComponentId.Clear.id) {
+                    emoji(ReactionEmoji.Unicode(localize("interaction_clear_emoji")))
+                    label = localize("interaction_clear_label")
+                }
             }
-        }
 
-        if (hasQueue) {
-            interactionButton(ButtonStyle.Secondary, ButtonId.Clear.id) {
-                label = "Clear Queue"
+            interactionButton(ButtonStyle.Secondary, ComponentId.Leave.id) {
+                emoji(ReactionEmoji.Unicode(localize("interaction_leave_emoji")))
+                label = localize("interaction_leave_label")
             }
-        }
-
-        interactionButton(ButtonStyle.Secondary, ButtonId.Leave.id) {
-            label = "Leave Channel"
         }
     }
 }
