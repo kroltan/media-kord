@@ -7,7 +7,7 @@ import dev.kord.common.Color
 import dev.kord.common.entity.Snowflake
 import dev.kord.core.Kord
 import dev.kord.core.behavior.interaction.respondEphemeral
-import dev.kord.core.entity.interaction.GuildChatInputCommandInteraction
+import dev.kord.core.behavior.interaction.updatePublicMessage
 import dev.kord.core.event.gateway.ReadyEvent
 import dev.kord.core.event.interaction.GuildChatInputCommandInteractionCreateEvent
 import dev.kord.core.event.interaction.GuildComponentInteractionCreateEvent
@@ -15,7 +15,8 @@ import dev.kord.core.event.user.VoiceStateUpdateEvent
 import dev.kord.core.on
 import dev.kord.gateway.Intent
 import dev.kord.rest.builder.interaction.string
-import dev.kord.rest.builder.message.create.embed
+import dev.kord.rest.builder.message.embed
+import dev.lavalink.youtube.YoutubeAudioSourceManager
 import kotlinx.coroutines.*
 import mu.KotlinLogging
 import kotlin.concurrent.thread
@@ -25,6 +26,7 @@ private val logger = KotlinLogging.logger {}
 
 suspend fun main(args: Array<String>) {
     val lava = DefaultAudioPlayerManager()
+    lava.registerSourceManager(YoutubeAudioSourceManager())
     AudioSourceManagers.registerRemoteSources(lava)
 
     val sessions: MutableMap<Snowflake, InteractiveSession> = mutableMapOf()
@@ -88,9 +90,9 @@ suspend fun main(args: Array<String>) {
     kord.on<GuildComponentInteractionCreateEvent> {
         val session = sessions[interaction.guildId] ?: return@on
 
-        session.handleComponent(interaction)
-
-        interaction.respondEphemeral { }
+        if (session.handleComponent(interaction)) {
+            interaction.deferPublicMessageUpdate()
+        }
     }
 
     kord.on<VoiceStateUpdateEvent> {
@@ -114,7 +116,11 @@ private suspend fun GuildChatInputCommandInteractionCreateEvent.play(
 ) {
     val ownVoiceChannel = interaction.guild.getMember(kord.selfId).getVoiceStateOrNull()?.channelId
     val requestedVoiceChannel = interaction.user.getVoiceStateOrNull()?.getChannelOrNull().otherwise {
-        interaction.respondEphemeral { content = "You must be in a voice channel" }
+        interaction.respondEphemeral {
+            localeScope(interaction.guildLocale) {
+                content = localize("play_no_voice")
+            }
+        }
         return
     }
 
@@ -130,21 +136,20 @@ private suspend fun GuildChatInputCommandInteractionCreateEvent.play(
             (fromUrl + fromAttachment)
         }
     } catch (ex: FriendlyException) {
-        interaction.respondException(ex, ex.severity)
-
-        logger.error { ex.stackTraceToString() }
+        respondException(response, ex, ex.severity)
         return
     } catch (ex: Exception) {
-        interaction.respondException(ex, Severity.FAULT)
+        respondException(response, ex, Severity.FAULT)
 
-        logger.error { ex.stackTraceToString() }
+        logger.error(ex) { }
         return
     }
 
     if (tracks.isEmpty()) {
         interaction.respondEphemeral {
-
-            content = localeScope(interaction.guildLocale) { localize("play_no_matches") }
+            localeScope(interaction.guildLocale) {
+                content = localize("play_no_matches")
+            }
         }
     }
 
@@ -174,16 +179,24 @@ private suspend fun GuildChatInputCommandInteractionCreateEvent.play(
     response.delete()
 }
 
-private suspend fun GuildChatInputCommandInteraction.respondException(exception: Exception, severity: Severity) {
-    respondEphemeral {
-        embed {
-            title = localeScope(guildLocale) { localize("exception_embed_title") }
-            description = exception.message
+private suspend fun GuildChatInputCommandInteractionCreateEvent.respondException(
+    response: StatefulResponse.Handle,
+    exception: Exception,
+    severity: Severity,
+) {
+    logger.error(exception) { }
 
-            color = when (severity) {
-                Severity.COMMON -> null
-                Severity.SUSPICIOUS -> Color(190, 145, 23)
-                Severity.FAULT -> Color(199, 84, 80)
+    response.update {
+        localeScope(interaction.guildLocale) {
+            embed {
+                title = localize("exception_embed_title")
+                description = exception.message
+
+                color = when (severity) {
+                    Severity.COMMON -> null
+                    Severity.SUSPICIOUS -> Color(190, 145, 23)
+                    Severity.FAULT -> Color(199, 84, 80)
+                }
             }
         }
     }

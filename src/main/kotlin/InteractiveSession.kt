@@ -14,9 +14,9 @@ import dev.kord.core.entity.Member
 import dev.kord.core.entity.ReactionEmoji
 import dev.kord.core.entity.VoiceState
 import dev.kord.core.entity.interaction.GuildComponentInteraction
+import dev.kord.rest.builder.message.actionRow
+import dev.kord.rest.builder.message.embed
 import dev.kord.rest.builder.message.modify.InteractionResponseModifyBuilder
-import dev.kord.rest.builder.message.modify.actionRow
-import dev.kord.rest.builder.message.modify.embed
 import dev.kord.rest.request.KtorRequestException
 import dev.kord.voice.AudioFrame
 import dev.kord.voice.VoiceConnection
@@ -111,7 +111,9 @@ class InteractiveSession private constructor(
             listeners.remove(state.userId)
         }
 
-        disconnect()
+        if (listeners.isEmpty()) {
+            disconnect()
+        }
     }
 
     suspend fun handleComponent(interaction: GuildComponentInteraction): Boolean {
@@ -153,11 +155,18 @@ private fun InteractionResponseModifyBuilder.renderMainTrack(
     isPlaying: Boolean,
     currentTrack: AudioTrack?,
 ) {
-    val info = currentTrack?.info ?: return
-
     localeScope(locale) {
         embed {
-            title = info.title
+            val track = currentTrack.otherwise {
+                description = localize("summary_idle", localize("command_play_name"))
+
+                author {
+                    localize("summary_idle_title")
+                }
+                return@embed
+            }
+
+            title = track.info.title
             description = buildString {
                 appendLine(
                     if (isPlaying) {
@@ -166,16 +175,16 @@ private fun InteractionResponseModifyBuilder.renderMainTrack(
                         localize("summary_status_paused")
                     }
                 )
-                currentTrack.requestedBy.letNotNull { appendLine(localize("summary_requester", it.mention)) }
+                track.requestedBy.letNotNull { appendLine(localize("summary_requester", it.mention)) }
             }
-            url = info.uri
+            url = track.info.uri
 
             author {
-                name = info.author
+                name = track.info.author
             }
 
             footer {
-                text = localeScope(locale) { localize(Duration.ofMillis(currentTrack.duration)) }
+                text = localize(Duration.ofMillis(track.duration))
             }
         }
     }

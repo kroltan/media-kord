@@ -6,6 +6,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.getAndUpdate
 import kotlinx.coroutines.flow.update
+import kotlin.math.max
 
 class Playlist(private val player: AudioPlayer) : AutoCloseable {
     val isPlaying: StateFlow<Boolean> get() = isPlayingMutable
@@ -76,7 +77,7 @@ class Playlist(private val player: AudioPlayer) : AutoCloseable {
 
     private fun popQueue(): AudioTrack? {
         val list = queueMutable.getAndUpdate {
-            it.takeLast(it.count() - 1)
+            it.takeLast(max(0, it.count() - 1))
         }
 
         return list.getOrNull(0)
