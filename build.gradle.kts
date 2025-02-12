@@ -5,23 +5,25 @@ repositories {
     mavenCentral()
     gradlePluginPortal()
     maven("https://jitpack.io")
+    maven("https://maven.lavalink.dev/releases")
 }
 
 plugins {
     id("com.github.johnrengelman.shadow") version "8.1.1"
-    kotlin("jvm") version "1.9.0"
+    kotlin("jvm") version "2.0.21"
     application
 }
 
 dependencies {
     testImplementation(kotlin("test"))
+    implementation("io.github.oshai:kotlin-logging-jvm:7.0.3")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.2")
     implementation("io.github.milis92.kotlin_markdown:basic:1.0.0")
-    implementation("dev.kord:kord-core:0.13.1")
-    implementation("dev.kord:kord-core-voice:0.10.0")
-    implementation("dev.arbjerg:lavaplayer:2.1.1")
-    implementation("com.github.lavalink-devs.lavaplayer-youtube-source:plugin:1.0.5")
-    implementation("org.slf4j:slf4j-simple:2.0.13")
+    implementation("dev.kord:kord-core:0.15.0")
+    implementation("dev.kord:kord-core-voice:0.15.0")
+    implementation("dev.arbjerg:lavaplayer:2.2.3")
+    implementation("dev.lavalink.youtube:v2:1.11.4")
+    implementation("org.slf4j:slf4j-simple:2.0.16")
 }
 
 tasks.test {
@@ -29,7 +31,7 @@ tasks.test {
 }
 
 kotlin {
-    jvmToolchain(19)
+    jvmToolchain(21)
 }
 
 application {

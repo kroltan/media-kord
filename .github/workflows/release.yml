@@ -14,13 +14,13 @@ jobs:
         uses: actions/setup-java@v3
         with:
           distribution: temurin
-          java-version: 19
+          java-version: 21
       - name: Setup Gradle
         uses: gradle/gradle-build-action@v2
         with:
           arguments: shadowJar
       - name: Add JAR to release
-        uses: svenstaro/upload-release-action@2.7.0
+        uses: svenstaro/upload-release-action@2.9.0
         with:
           file: build/libs/media-kord-*.jar
           file_glob: true

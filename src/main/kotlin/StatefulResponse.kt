@@ -1,7 +1,7 @@
-import dev.kord.core.behavior.interaction.response.DeferredPublicMessageInteractionResponseBehavior
+import dev.kord.core.behavior.interaction.response.DeferredMessageInteractionResponseBehavior
 import dev.kord.core.behavior.interaction.response.edit
 import dev.kord.core.behavior.interaction.response.respond
-import dev.kord.core.entity.interaction.response.PublicMessageInteractionResponse
+import dev.kord.core.entity.interaction.response.MessageInteractionResponse
 import dev.kord.rest.builder.message.modify.InteractionResponseModifyBuilder
 
 sealed class StatefulResponse {
@@ -11,7 +11,9 @@ sealed class StatefulResponse {
         }
 
         suspend fun delete() {
-            inner = inner.delete()
+            val temp = inner
+            inner = Deleted
+            temp.delete()
         }
 
         fun consume(): Handle {
@@ -22,10 +24,10 @@ sealed class StatefulResponse {
     }
 
     companion object {
-        fun from(deferred: DeferredPublicMessageInteractionResponseBehavior): Handle = Handle(Deferred(deferred))
+        fun from(deferred: DeferredMessageInteractionResponseBehavior): Handle = Handle(Deferred(deferred))
     }
 
-    private data class Deferred(val inner: DeferredPublicMessageInteractionResponseBehavior) : StatefulResponse() {
+    private data class Deferred(val inner: DeferredMessageInteractionResponseBehavior) : StatefulResponse() {
         override suspend fun update(block: InteractionResponseModifyBuilder.() -> Unit): StatefulResponse {
             return Existing(inner.respond(block))
         }
@@ -36,7 +38,7 @@ sealed class StatefulResponse {
         }
     }
 
-    private data class Existing(val inner: PublicMessageInteractionResponse) : StatefulResponse() {
+    private data class Existing(val inner: MessageInteractionResponse) : StatefulResponse() {
         override suspend fun update(block: InteractionResponseModifyBuilder.() -> Unit): StatefulResponse {
             return Existing(inner.edit(block))
         }

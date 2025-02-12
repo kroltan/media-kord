@@ -133,9 +133,9 @@ class InteractiveSession private constructor(
     }
 
     suspend fun disconnect() {
+        response.delete()
         playlist.close()
         connection.shutdown()
-        response.delete()
 
         doneMutable.close()
     }

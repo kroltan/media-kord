@@ -7,7 +7,6 @@ import dev.kord.common.Color
 import dev.kord.common.entity.Snowflake
 import dev.kord.core.Kord
 import dev.kord.core.behavior.interaction.respondEphemeral
-import dev.kord.core.behavior.interaction.updatePublicMessage
 import dev.kord.core.event.gateway.ReadyEvent
 import dev.kord.core.event.interaction.GuildChatInputCommandInteractionCreateEvent
 import dev.kord.core.event.interaction.GuildComponentInteractionCreateEvent
@@ -17,8 +16,8 @@ import dev.kord.gateway.Intent
 import dev.kord.rest.builder.interaction.string
 import dev.kord.rest.builder.message.embed
 import dev.lavalink.youtube.YoutubeAudioSourceManager
+import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.*
-import mu.KotlinLogging
 import kotlin.concurrent.thread
 import kotlin.time.Duration.Companion.seconds
 
@@ -31,7 +30,7 @@ suspend fun main(args: Array<String>) {
 
     val sessions: MutableMap<Snowflake, InteractiveSession> = mutableMapOf()
 
-    val token = args[0]
+    val token = args.getOrNull(0) ?: throw Exception("Please provide a Discord bot token as a command-line argument")
     val kord = Kord(token) {
         enableShutdownHook = false
     }
@@ -124,8 +123,6 @@ private suspend fun GuildChatInputCommandInteractionCreateEvent.play(
         return
     }
 
-    val response = StatefulResponse.from(interaction.deferPublicResponse())
-
     val tracks = try {
         withTimeout(10.seconds) {
             val fromUrl = interaction.command.strings.values
@@ -136,10 +133,10 @@ private suspend fun GuildChatInputCommandInteractionCreateEvent.play(
             (fromUrl + fromAttachment)
         }
     } catch (ex: FriendlyException) {
-        respondException(response, ex, ex.severity)
+        respondException(ex, ex.severity)
         return
     } catch (ex: Exception) {
-        respondException(response, ex, Severity.FAULT)
+        respondException(ex, Severity.FAULT)
 
         logger.error(ex) { }
         return
@@ -151,7 +148,10 @@ private suspend fun GuildChatInputCommandInteractionCreateEvent.play(
                 content = localize("play_no_matches")
             }
         }
+        return
     }
+
+    val response = StatefulResponse.from(interaction.deferPublicResponse())
 
     val session = sessions.replace(interaction.guildId) { existing ->
         if (existing == null || ownVoiceChannel != requestedVoiceChannel.id) {
@@ -180,13 +180,12 @@ private suspend fun GuildChatInputCommandInteractionCreateEvent.play(
 }
 
 private suspend fun GuildChatInputCommandInteractionCreateEvent.respondException(
-    response: StatefulResponse.Handle,
     exception: Exception,
     severity: Severity,
 ) {
     logger.error(exception) { }
 
-    response.update {
+    interaction.respondEphemeral {
         localeScope(interaction.guildLocale) {
             embed {
                 title = localize("exception_embed_title")
