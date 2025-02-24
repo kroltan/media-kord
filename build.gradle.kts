@@ -18,7 +18,6 @@ dependencies {
     testImplementation(kotlin("test"))
     implementation("io.github.oshai:kotlin-logging-jvm:7.0.3")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.2")
-    implementation("io.github.milis92.kotlin_markdown:basic:1.0.0")
     implementation("dev.kord:kord-core:0.15.0")
     implementation("dev.kord:kord-core-voice:0.15.0")
     implementation("dev.arbjerg:lavaplayer:2.2.3")

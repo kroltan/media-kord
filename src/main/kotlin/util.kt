@@ -37,15 +37,18 @@ inline fun <T> T.tryAugment(block: T.() -> T): T {
     }
 }
 
+fun String.link(url: java.net.URI, title: String? = "") =
+    "[$this]($url \"$title\")"
+
 suspend fun AudioPlayerManager.loadItem(identifier: String): Collection<AudioTrack> {
     return suspendCoroutine {
         this.loadItem(identifier, object : AudioLoadResultHandler {
             override fun trackLoaded(track: AudioTrack?) {
-                it.resume(listOf(track.otherwise { return@trackLoaded }))
+                it.resume(listOf(track!!))
             }
 
             override fun playlistLoaded(playlist: AudioPlaylist?) {
-                it.resume(playlist.otherwise { return@playlistLoaded }.tracks)
+                it.resume(playlist!!.tracks)
             }
 
             override fun noMatches() {

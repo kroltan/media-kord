@@ -7,6 +7,7 @@ import dev.kord.common.Color
 import dev.kord.common.entity.Snowflake
 import dev.kord.core.Kord
 import dev.kord.core.behavior.interaction.respondEphemeral
+import dev.kord.core.behavior.interaction.response.createEphemeralFollowup
 import dev.kord.core.event.gateway.ReadyEvent
 import dev.kord.core.event.interaction.GuildChatInputCommandInteractionCreateEvent
 import dev.kord.core.event.interaction.GuildComponentInteractionCreateEvent
@@ -14,6 +15,7 @@ import dev.kord.core.event.user.VoiceStateUpdateEvent
 import dev.kord.core.on
 import dev.kord.gateway.Intent
 import dev.kord.rest.builder.interaction.string
+import dev.kord.rest.builder.message.create.MessageCreateBuilder
 import dev.kord.rest.builder.message.embed
 import dev.lavalink.youtube.YoutubeAudioSourceManager
 import io.github.oshai.kotlinlogging.KotlinLogging
@@ -78,19 +80,30 @@ suspend fun main(args: Array<String>) {
             return@on
         }
 
-        val session = sessions.remove(state.guildId) ?: return@on
-        session.disconnect()
+        withContext(LocaleContext(state.getGuild())) {
+            val session = sessions.remove(state.guildId) ?: return@withContext
+            session.disconnect()
+        }
     }
 
     kord.on<GuildChatInputCommandInteractionCreateEvent> {
-        play(lava, sessions)
+        withContext(LocaleContext(interaction.guildLocale)) {
+            play(lava, sessions)
+        }
     }
 
     kord.on<GuildComponentInteractionCreateEvent> {
         val session = sessions[interaction.guildId] ?: return@on
+        val response = interaction.deferPublicMessageUpdate()
 
-        if (session.handleComponent(interaction)) {
-            interaction.deferPublicMessageUpdate()
+        withContext(LocaleContext(interaction.guildLocale)) {
+            try {
+                session.handleComponent(interaction)
+            } catch (ex: Exception) {
+                response.createEphemeralFollowup {
+                    respondException(ex)
+                }
+            }
         }
     }
 
@@ -101,7 +114,9 @@ suspend fun main(args: Array<String>) {
 
         val session = sessions[channel.guildId] ?: return@on
 
-        session.handleVoiceState(state)
+        withContext(LocaleContext(state.getGuild())) {
+            session.handleVoiceState(state)
+        }
     }
 
     kord.login {
@@ -116,7 +131,7 @@ private suspend fun GuildChatInputCommandInteractionCreateEvent.play(
     val ownVoiceChannel = interaction.guild.getMember(kord.selfId).getVoiceStateOrNull()?.channelId
     val requestedVoiceChannel = interaction.user.getVoiceStateOrNull()?.getChannelOrNull().otherwise {
         interaction.respondEphemeral {
-            localeScope(interaction.guildLocale) {
+            localeScope {
                 content = localize("play_no_voice")
             }
         }
@@ -132,19 +147,16 @@ private suspend fun GuildChatInputCommandInteractionCreateEvent.play(
 
             (fromUrl + fromAttachment)
         }
-    } catch (ex: FriendlyException) {
-        respondException(ex, ex.severity)
-        return
     } catch (ex: Exception) {
-        respondException(ex, Severity.FAULT)
-
-        logger.error(ex) { }
+        interaction.respondEphemeral {
+            respondException(ex)
+        }
         return
     }
 
     if (tracks.isEmpty()) {
         interaction.respondEphemeral {
-            localeScope(interaction.guildLocale) {
+            localeScope {
                 content = localize("play_no_matches")
             }
         }
@@ -179,23 +191,26 @@ private suspend fun GuildChatInputCommandInteractionCreateEvent.play(
     response.delete()
 }
 
-private suspend fun GuildChatInputCommandInteractionCreateEvent.respondException(
+private suspend fun MessageCreateBuilder.respondException(
     exception: Exception,
-    severity: Severity,
+    severityOverride: Severity? = null,
 ) {
+    val severity = severityOverride ?: when (exception) {
+        is FriendlyException -> exception.severity
+        else -> Severity.FAULT
+    }
+
     logger.error(exception) { }
 
-    interaction.respondEphemeral {
-        localeScope(interaction.guildLocale) {
-            embed {
-                title = localize("exception_embed_title")
-                description = exception.message
+    localeScope {
+        embed {
+            title = localize("exception_embed_title")
+            description = exception.message
 
-                color = when (severity) {
-                    Severity.COMMON -> null
-                    Severity.SUSPICIOUS -> Color(190, 145, 23)
-                    Severity.FAULT -> Color(199, 84, 80)
-                }
+            color = when (severity ?: Severity.FAULT) {
+                Severity.COMMON -> null
+                Severity.SUSPICIOUS -> Color(190, 145, 23)
+                Severity.FAULT -> Color(199, 84, 80)
             }
         }
     }

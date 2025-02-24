@@ -1,37 +1,43 @@
 import dev.kord.common.Locale
 import dev.kord.common.asJavaLocale
+import dev.kord.core.entity.Guild
 import org.jetbrains.annotations.PropertyKey
 import java.text.MessageFormat
 import java.time.Duration
 import java.util.*
+import kotlin.coroutines.CoroutineContext
+import kotlin.coroutines.coroutineContext
+
+data class LocaleContext(val locale: Locale?): CoroutineContext.Element {
+    override val key: CoroutineContext.Key<*> = Key
+    companion object Key : CoroutineContext.Key<LocaleContext>
+
+    constructor(guild: Guild?) : this(guild?.preferredLocale)
+}
 
 data class MultiLocale<T>(val default: T, private val localized: Map<Locale, T>) :
     Map<Locale, T> by localized
 
-data class LocaleScope(private val bundle: ResourceBundle) {
+class LocaleScope internal constructor(locale: Locale?) {
+    private val bundle: ResourceBundle
+
+    init {
+        val javaLocale = locale?.asJavaLocale() ?: java.util.Locale.getDefault()
+        bundle = ResourceBundle.getBundle("userFacingStrings", javaLocale, javaClass.module)
+    }
+
     fun localize(@PropertyKey(resourceBundle = "userFacingStrings") key: String, vararg args: Any): String {
         return MessageFormat(bundle.getString(key), bundle.locale).format(args)
     }
 }
 
-fun <T> localeScope(locale: Locale? = null, block: LocaleScope.() -> T): T {
-    val javaLocale = locale?.asJavaLocale() ?: java.util.Locale.getDefault()
-    val bundle = ResourceBundle.getBundle("userFacingStrings", javaLocale, block.javaClass.module)
-    val context = LocaleScope(bundle)
+suspend fun <T> localeScope(block: suspend LocaleScope.() -> T): T =
+    block(LocaleScope(coroutineContext[LocaleContext.Key]?.locale))
 
-    return block(context)
-}
-
-fun <T> multiLocale(locales: List<Locale> = Locale.ALL, block: LocaleScope.() -> T): MultiLocale<T> {
-    val default = localeScope(null, block)
-    val specialized = mutableMapOf<Locale, T>()
-
-    for (locale in locales) {
-        specialized[locale] = localeScope(locale, block)
-    }
-
-    return MultiLocale(default, specialized)
-}
+fun <T> multiLocale(locales: List<Locale> = Locale.ALL, block: LocaleScope.() -> T): MultiLocale<T> = MultiLocale(
+    block(LocaleScope(null)),
+    locales.associateWith { block(LocaleScope(it)) },
+)
 
 fun LocaleScope.localize(duration: Duration): String = buildString {
     suspend fun SequenceScope<CharSequence>.yieldNonZero(key: String, value: Int) {
