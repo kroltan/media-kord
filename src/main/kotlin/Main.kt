@@ -27,8 +27,12 @@ private val logger = KotlinLogging.logger {}
 
 suspend fun main(args: Array<String>) {
     val lava = DefaultAudioPlayerManager()
-    lava.registerSourceManager(YoutubeAudioSourceManager())
-    AudioSourceManagers.registerRemoteSources(lava)
+    lava.registerSourceManager(YoutubeAudioSourceManager(false))
+    @Suppress("DEPRECATION")
+    AudioSourceManagers.registerRemoteSources(
+        lava,
+        com.sedmelluq.discord.lavaplayer.source.youtube.YoutubeAudioSourceManager::class.java
+    )
 
     val sessions: MutableMap<Snowflake, InteractiveSession> = mutableMapOf()
 
